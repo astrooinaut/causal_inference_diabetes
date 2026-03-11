@@ -1,32 +1,29 @@
-# Causal Inference: Does Physical Activity Reduce Diabetes Risk?
+# Advanced Causal Inference: Physical Activity & Diabetes Risk
 
-A causal inference analysis investigating whether increasing physical activity **directly causes** a reduction in diabetes risk, or whether this association is entirely driven by confounding variables.
-
----
-
+An extension of a foundational causal inference analysis, this project applies progressively advanced methods to answer the same research question using the CDC Diabetes Health Indicators Dataset. Starting from a simple backdoor adjustment, the pipeline advances through propensity score matching and inverse probability of treatment weighting (IPTW) — providing multiple independent lines of causal evidence that converge on the same conclusion.
+______________________________________________________________
 ## Table of Contents
 
 - [Research Question](#research-question)
 - [Dataset](#dataset)
-- [Methodology](#methodology)
-  - [1. Causal DAG](#1-causal-dag)
-  - [2. Identification](#2-identification)
-  - [3. Data Mapping](#3-data-mapping)
-  - [4. Estimation](#4-estimation)
+- [Differences from Project 1](#differences-from-project-1)
+- [Methods Pipeline](#methods-pipeline)
+  - [1. Causal DAG & Identification](#1-causal-dag--identification)
+  - [2. Simple Backdoor Estimation (Baseline)](#2-simple-backdoor-estimation-baseline)
+  - [3. Propensity Score Estimation](#3-propensity-score-estimation)
+  - [4. Propensity Score Matching (PSM)](#4-propensity-score-matching-psm)
+  - [5. Inverse Probability of Treatment Weighting (IPTW)](#5-inverse-probability-of-treatment-weighting-iptw)
 - [Results](#results)
 - [Conclusion](#conclusion)
 - [Tech Stack](#tech-stack)
-
----
+- [How to Run](#how-to-run)
 
 ## Research Question
 
 > **Does increasing physical activity directly cause a reduction in diabetes risk, or is this effect entirely attributable to confounders?**
 
-This is a causal question — not merely a correlational one. Standard regression or observational analysis cannot answer it without explicitly accounting for the web of confounding variables that influence both physical activity and diabetes risk. This project applies a formal causal inference pipeline to answer it rigorously.
-
----
-
+This project builds directly on [Project 1](../causal_inference_project1/) by extending the single-method backdoor regression approach into a multi-method causal pipeline, with each method providing an independent robustness check on the causal estimate.
+______________________________________________________________
 ## Dataset
 
 **CDC Diabetes Health Indicators Dataset** (BRFSS 2015)
@@ -34,143 +31,194 @@ This is a causal question — not merely a correlational one. Standard regressio
 | Property | Details |
 |---|---|
 | Source | CDC Behavioral Risk Factor Surveillance System (BRFSS), 2015 |
-| Features | 22 variables (demographics, lab results, lifestyle survey responses) |
-| Target Variable | `Diabetes_012` — 0 = Healthy, 1 = Pre-diabetic, 2 = Diabetic |
-| Treatment Variable | `PhysActivity` — Binary (1 = physically active, 0 = not) |
+| Samples | 253,680 |
+| Features | 22 variables (demographics, lab results, lifestyle survey) |
+| Treatment | `PhysActivity` — Binary (1 = active, 0 = inactive) |
+| Outcome | `Diabetes_012` — recoded to binary (0 = healthy, 1 = pre-diabetic or diabetic) |
 
-Key variables used in this analysis:
+**Key change from Project 1:** The outcome variable was recoded from 3 classes (healthy / pre-diabetic / diabetic) to **2 classes** (healthy vs. any diabetes). Pre-diabetic cases (class 1) were removed and diabetic cases (class 2) were recoded to 1, enabling logistic regression and odds ratio interpretation in the IPTW stage.
+______________________________________________________________
+## Differences from Project 1
 
-- **Exposure:** `PhysActivity` (binary)
-- **Outcome:** `Diabetes_012` (multiclass)
-- **Confounders:** `Age`, `Sex`, `Income`, `Education`
+| Aspect | Project 1 | Project 2 (This Project) |
+|---|---|---|
+| Outcome variable | 3-class (0, 1, 2) | Binary (0 = healthy, 1 = diabetic/pre-diabetic) |
+| Estimation methods | Backdoor linear regression only | Backdoor + PSM + IPTW |
+| Confounder adjustment | OLS regression | Propensity score model, matching, weighting |
+| Balance verification | None | SMD plots before & after matching |
+| Effect measure | Average Treatment Effect (ATE, linear) | ATE (linear) + Odds Ratios (logistic) |
+| Sample size | ~253k (subset used) | Full 253,680 used |
+| Robustness checks | Statsmodels cross-validation | Three independent methods converge |
+______________________________________________________________
+## Methods Pipeline
 
----
+### 1. Causal DAG & Identification
 
-## Methodology
+The same DAG from Project 1 was retained, encoding domain knowledge about the causal relationships between physical activity, diabetes risk, and confounders including age, sex, income, education, BMI, blood pressure, cholesterol, genetics, and mental health.
 
-This project follows the standard four-step causal inference pipeline:
-
-### 1. Causal DAG
-
-A Directed Acyclic Graph (DAG) was constructed to encode domain knowledge about the causal relationships between variables. The DAG was built using the **DoWhy** library.
-
-Key relationships encoded in the DAG:
-
-- `Age`, `Sex`, `Income`, `Education` → `PhysActivity` (confounders)
-- `Age`, `Sex`, `Income`, `Ethnicity` → `Diabetes_Risk` (direct effects)
-- `PhysActivity` → `BMI` → `Diabetes_Risk` (mediation path)
-- `PhysActivity` → `Cholesterol` → `Diabetes_Risk` (mediation path)
-- `PhysActivity` → `BP` → `Diabetes_Risk` (mediation path)
-- `Mental Health`, `Difficulty Walking` → `PhysActivity`
-- `Mental Health` also serves as a candidate **Instrumental Variable (IV)**
-
-> Note: 4 variables (`Genetics`, `Ethnicity`, `Diet`, `Mental Health`) were assumed unobserved as they lacked direct measures in the dataset.
-
-### 2. Identification
-
-Using the DAG, DoWhy identified the **minimal deconfounding set** (backdoor adjustment set) required to isolate the causal effect of physical activity on diabetes risk:
+DoWhy's `identify_effect()` was used to derive the **minimal deconfounding set** via the backdoor criterion:
 
 ```
-d/d[PhysActivity] E[Diabetes_012 | Sex, Age, Education, Income]
+d/d[PhysActivity] E[Diabetes_012 | Income, Sex, Education, Age]
 ```
 
-**Interpretation:** To find the true causal effect, we compare people with different physical activity levels while holding `Age`, `Sex`, `Income`, and `Education` constant. Any remaining difference in diabetes risk can then be attributed to physical activity itself.
+**Interpretation:** Conditioning on Age, Sex, Income, and Education blocks all backdoor paths from physical activity to diabetes risk, isolating the direct causal effect.
 
-The identification step also found:
-- A valid **Instrumental Variable** estimand using `Mental Health` as an instrument
-- No valid **Front-door** estimand (no unconfounded mediator chain found)
+### 2. Simple Backdoor Estimation (Baseline)
 
-### 3. Data Mapping
-
-The CDC dataset was mapped to the theoretical DAG variables:
-
-| DAG Variable | CDC Dataset Column |
-|---|---|
-| `PhysActivity` | `PhysActivity` |
-| `Diabetes_Risk` | `Diabetes_012` |
-| `Age` | `Age` |
-| `Sex` | `Sex` |
-| `Income` | `Income` |
-| `Education` | `Education` |
-| `BP` | `HighBP` |
-| `Cholesterol` | `HighChol` |
-| `BMI` | `BMI` |
-| `Difficulty Walking` | `DiffWalk` |
-| `Diet` (proxy) | `Veggies` |
-| `Mental Health` | `MentHlth` |
-
-After verifying that adequate measures existed for all variables in the deconfounding set, the re-specified DAG was passed back into DoWhy for estimation.
-
-### 4. Estimation
-
-The causal effect was estimated using the **backdoor linear regression** method via DoWhy, and cross-validated with **Statsmodels OLS**:
+A linear regression was fitted via both DoWhy and Statsmodels as a baseline, replicating the Project 1 approach on the recoded binary outcome:
 
 ```python
-# DoWhy estimation
-deconfounding_estimate = deconfounding_model.estimate_effect(
-    deconfounding_estimands,
-    method_name="backdoor.linear_regression",
-    confidence_intervals=True,
-    test_significance=True
-)
-
-# Statsmodels cross-validation
-reg_model = smf.ols(
-    formula='Diabetes_012 ~ PhysActivity + Age + Sex + Income + Education',
-    data=df
-)
+Diabetes_012 ~ PhysActivity + Age + Sex + Income + Education
 ```
 
----
-
-## Results
+Both implementations produced identical results, confirming the estimate is robust to the choice of library.
 
 | Metric | Value |
 |---|---|
-| **ATE (Average Treatment Effect)** | **−0.1230** |
-| p-value | 0.000 (statistically significant) |
-| 95% Confidence Interval | [−0.1293, −0.1167] |
+| ATE | **−0.0633** |
+| p-value | 0.000 |
+| 95% CI | [−0.0666, −0.0600] |
 
-Both DoWhy and Statsmodels produced **identical results**, providing strong convergent validity.
+**Interpretation:** Being physically active reduces the probability of a diabetes diagnosis by approximately **6.3 percentage points** on average, after adjusting for age, sex, income, and education.
 
-**Interpretation:**
+### 3. Propensity Score Estimation
 
-> Increasing the treatment variable `PhysActivity` from 0 to 1 causes an **average decrease of 0.123 points** in the expected diabetes risk score (`Diabetes_012`), after controlling for Age, Sex, Income, and Education.
+A **propensity score** is the estimated probability that a given individual is physically active, given their observed characteristics. It compresses all confounders into a single scalar that can be used for matching or weighting.
 
-The **negative effect** means physical activity pulls individuals toward 0 (healthy), which is consistent with clinical expectations and confirms the model is behaving correctly.
+A logistic regression model was fitted to estimate propensity scores from four confounders (Age, Sex, Income, Education):
 
----
+```python
+P(PhysActivity = 1 | Age, Sex, Income, Education)
+```
 
+A **common support check** (overlap plot) confirmed that the propensity score distributions of the treated (active) and control (inactive) groups substantially overlap — a necessary condition for valid matching and weighting. Neither group was exclusively clustered near 0 or 1.
+
+### 4. Propensity Score Matching (PSM)
+
+PSM creates a balanced pseudo-experiment by pairing each physically active individual with an inactive individual who has a nearly identical propensity score — i.e., who looks essentially the same in age, sex, income, and education.
+
+**Procedure:**
+
+1. Treated group was subsampled to match the size of the control pool (61,760 each)
+2. A `cKDTree` (k-d tree nearest-neighbour search) was used for fast 1:1 nearest-neighbour matching on propensity score
+3. **Standardised Mean Difference (SMD)** was calculated before and after matching for all four confounders to verify balance
+
+**Balance results:**
+
+| Confounder | SMD Before Matching | SMD After Matching |
+|---|---|---|
+| Age | 0.219 | 0.000016 |
+| Education | 0.464 | 0.000086 |
+| Income | 0.459 | 0.000025 |
+| Sex | 0.076 | 0.000065 |
+
+All SMDs after matching are effectively zero (well below the 0.1 threshold), confirming that the matched groups are highly comparable. Before matching, active people tended to be older, more educated, and higher-income — all factors correlated with diabetes risk — which would have severely confounded a naïve comparison.
+
+### 5. Inverse Probability of Treatment Weighting (IPTW)
+
+IPTW is an alternative to matching that reweights the full dataset rather than discarding unmatched observations. Each individual is up-weighted if they belong to the group they were unlikely to be in (given their characteristics), creating a **pseudo-population** in which treatment is independent of confounders.
+
+**Procedure:**
+
+1. Propensity scores were estimated using a richer set of 12 risk factors: Age, Sex, Income, Education, HighBP, HighChol, BMI, Smoker, Veggies, HvyAlcoholConsump, MentHlth, DiffWalk
+2. **Stabilised IPTW weights** were computed to reduce variance from extreme propensity scores:
+   - Treated: `weight = P(Treatment=1) / propensity_score`
+   - Control: `weight = P(Treatment=0) / (1 - propensity_score)`
+3. Weights were **trimmed at the 1st and 99th percentiles** to prevent extreme values from dominating the analysis
+4. A **weighted logistic regression** (GLM with Binomial family) was fitted on the IPTW-weighted data, modelling the full set of risk factors alongside physical activity
+5. **Odds Ratios (OR)** with 95% CIs and significance levels were extracted for all variables and visualised as a **forest plot**
+
+**Propensity score summary post-estimation:**
+
+| Statistic | Value |
+|---|---|
+| Mean | 0.757 |
+| Std | 0.148 |
+| Min | 0.051 |
+| Max | 0.938 |
+
+**IPTW weight summary after stabilisation and trimming:**
+
+| Statistic | Value |
+|---|---|
+| Mean | 0.994 |
+| Std | 0.337 |
+| Min | 0.354 |
+| Max | 2.419 |
+______________________________________________________________
+## Results
+
+### Effect of Physical Activity on Diabetes Risk Across Methods
+
+| Method | Estimate | 95% CI | p-value |
+|---|---|---|---|
+| Backdoor Linear Regression (DoWhy) | ATE = −0.0633 | [−0.0666, −0.0600] | < 0.001 |
+| Backdoor Linear Regression (Statsmodels) | ATE = −0.0633 | [−0.0666, −0.0600] | < 0.001 |
+| IPTW Weighted Logistic Regression | OR = **0.8496** | [0.827, 0.873] | < 0.001 |
+
+All three methods agree: **physical activity is significantly protective against diabetes**, and this effect is not explained away by confounders.
+
+The IPTW odds ratio of **0.85** means that physically active individuals have **15% lower odds** of being diabetic or pre-diabetic compared to inactive individuals with the same risk profile.
+
+### IPTW Full Results — Odds Ratios for All Risk Factors
+
+| Variable | OR | 95% CI | Significance |
+|---|---|---|---|
+| **PhysActivity** | **0.850** | **[0.827, 0.873]** | *** |
+| HighBP | 2.382 | [2.319, 2.446] | *** |
+| HighChol | 1.991 | [1.942, 2.041] | *** |
+| DiffWalk | 1.589 | [1.545, 1.635] | *** |
+| Age | 1.135 | [1.129, 1.140] | *** |
+| Sex | 1.330 | [1.298, 1.363] | *** |
+| BMI | 1.063 | [1.062, 1.065] | *** |
+| Smoker | 1.042 | [1.017, 1.068] | *** |
+| MentHlth | 1.009 | [1.007, 1.010] | *** |
+| HvyAlcoholConsump | 0.489 | [0.457, 0.523] | *** |
+| Veggies | 0.929 | [0.903, 0.955] | *** |
+| Income | 0.910 | [0.905, 0.916] | *** |
+| Education | 0.914 | [0.903, 0.926] | *** |
+
+**** p < 0.001*
+
+Results were visualised as a **forest plot** with OR point estimates, confidence intervals, and a reference line at OR = 1 (no effect), with shading distinguishing protective (OR < 1) from harmful (OR > 1) factors.
+______________________________________________________________
 ## Conclusion
 
-Physical activity has a **statistically significant, direct causal effect** on reducing diabetes risk — this effect is **not** entirely attributable to confounders. After adjusting for age, sex, income, and education using the backdoor criterion:
+Across three independent estimation strategies — backdoor linear regression, propensity score matching, and IPTW weighted logistic regression — the causal evidence consistently shows that **physical activity has a direct, statistically significant protective effect on diabetes risk**, independent of age, sex, income, education, and a broad range of clinical risk factors.
 
-- Physically active individuals have a diabetes risk score approximately **0.12 points lower** than inactive individuals, on average across the population.
-- The result is highly significant (p ≈ 0) with a tight 95% confidence interval.
-- The direction of the effect aligns with established clinical knowledge, lending further credibility to the causal model.
+Key findings:
 
-This analysis demonstrates that interventions encouraging physical activity could be expected to produce a genuine reduction in diabetes risk at the population level.
+- The **ATE of −0.063** (backdoor) indicates active individuals have a ~6.3 percentage point lower probability of being diabetic
+- The **OR of 0.85** (IPTW) indicates active individuals have 15% lower odds of diabetes, even after adjusting for 12 confounders
+- **Propensity score matching** confirmed that naïve comparisons were highly confounded — active people were substantially older, more educated, and higher-income before matching. After matching, all SMDs dropped to near zero, isolating the causal effect
+- High blood pressure (OR = 2.38) and high cholesterol (OR = 1.99) were the strongest risk-increasing factors in the IPTW model
+- Heavy alcohol consumption (OR = 0.49) and vegetable consumption (OR = 0.93) were independently protective, consistent with clinical knowledge
 
----
-
+The convergence of three methodologically distinct approaches strengthens the causal claim considerably beyond what any single method alone could provide.
+______________________________________________________________
 ## Tech Stack
 
 | Library | Purpose |
 |---|---|
-| `pandas` | Data loading and manipulation |
-| `numpy` | Numerical operations |
-| `dowhy` | Causal model construction, identification, and estimation |
-| `statsmodels` | OLS regression for cross-validation |
-| `matplotlib` | DAG and distribution visualisation |
-
----
-
+| `pandas`, `numpy` | Data manipulation |
+| `dowhy` | Causal model, DAG specification, identification, estimation |
+| `statsmodels` | OLS cross-validation, weighted GLM (IPTW) |
+| `scikit-learn` | Logistic regression for propensity score estimation, StandardScaler |
+| `scipy` | `cKDTree` nearest-neighbour matching for PSM |
+| `matplotlib` | Overlap plots, SMD balance plots, forest plot |
+______________________________________________________________
 ## How to Run
 
 1. Clone the repository
 2. Install dependencies:
    ```bash
-   pip install dowhy statsmodels pandas numpy matplotlib
+   pip install dowhy statsmodels scikit-learn scipy pandas numpy matplotlib
    ```
 3. Download the [CDC Diabetes Health Indicators Dataset](https://www.kaggle.com/datasets/alexteboul/diabetes-health-indicators-dataset) and update the file path in the notebook
-4. Run `Causal_Inference_Project1.ipynb` from top to bottom
+4. Run `Advanced_Causal_Inference_Project2.ipynb` from top to bottom
+
+> **Note:** The notebook builds sequentially — propensity scores computed in the matching section are reused in the IPTW section, so cells must be run in order.
+______________________________________________________________
+## Related Projects
+- **[Project 1 — Simple Causal Inference](../causal_inference_project1/):** The foundational backdoor adjustment approach on the 3-class outcome using the same DAG and dataset.
