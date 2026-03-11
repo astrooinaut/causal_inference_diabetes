@@ -40,7 +40,7 @@ ______________________________________________________________
 ______________________________________________________________
 ## Differences from Project 1
 
-| Aspect | Project 1 | Project 2 (This Project) |
+| Aspect | Project 1 | Project 2 |
 |---|---|---|
 | Outcome variable | 3-class (0, 1, 2) | Binary (0 = healthy, 1 = diabetic/pre-diabetic) |
 | Estimation methods | Backdoor linear regression only | Backdoor + PSM + IPTW |
