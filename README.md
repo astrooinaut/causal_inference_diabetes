@@ -1,6 +1,6 @@
 # Advanced Causal Inference: Physical Activity & Diabetes Risk
 
-An extension of a foundational causal inference analysis, this project applies progressively advanced methods to answer the same research question using the CDC Diabetes Health Indicators Dataset. Starting from a simple backdoor adjustment, the pipeline advances through propensity score matching and inverse probability of treatment weighting (IPTW) — providing multiple independent lines of causal evidence that converge on the same conclusion.
+An extension of a foundational causal inference analysis, this project applies progressively advanced methods to answer the same research question using the CDC Diabetes Health Indicators Dataset. Starting from a simple backdoor adjustment, the pipeline advances through propensity score matching and inverse probability of treatment weighting (IPTW), providing multiple independent lines of causal evidence that converge on the same conclusion.
 ______________________________________________________________
 ## Table of Contents
 
