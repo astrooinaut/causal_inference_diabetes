@@ -221,4 +221,4 @@ ______________________________________________________________
 > **Note:** The notebook builds sequentially — propensity scores computed in the matching section are reused in the IPTW section, so cells must be run in order.
 ______________________________________________________________
 ## Related Projects
-- **[Project 1 — Simple Causal Inference](../causal_inference_project1/):** The foundational backdoor adjustment approach on the 3-class outcome using the same DAG and dataset.
+- **[Project 1 — Simple Causal Inference](https://github.com/astrooinaut/causal_inference_diabetes/blob/main/Causal_Inference_Project1.ipynb):** The foundational backdoor adjustment approach on the 3-class outcome using the same DAG and dataset.
